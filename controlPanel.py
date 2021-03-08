@@ -24,7 +24,8 @@ DEFAULT_SETTINGS = {'lengthChannel_input': 'Dev2/ai0',
                     'abort_output': '/Dev2/port0/line2',
                     'camera_output': '/Dev2/port0/line6',
                     'lick_input': '/Dev2/port0/line7',
-                    'laser_output': '/Dev2/port0/line7',
+                    'laser_output': '/Dev2/port0/line24',
+                    'laser_input': '/Dev2/port0/line21',
                     'clock_input': '/Dev2/PFI0',
                     'trigger_input': '/Dev2/PFI1'
                    }
@@ -233,7 +234,7 @@ def runTask(ai_task, di_task, ao_task, do_task, taskParameters):
 lastTrialGo = False
 
 def runTrial(ai_task, di_task, ao_task, do_task, taskParameters):
-    ## Calculated Parameters
+    ## Calculated Parameters    
     if taskParameters['varyTone']:
         timeToToneRange = (taskParameters['forceTime']+taskParameters['timeToTone'],taskParameters['forceTime']+taskParameters['forceDuration']-taskParameters['rewardWindowDuration'])
         print('Time to tone range = {} to {} s'.format(timeToToneRange[0],timeToToneRange[1]))
@@ -267,12 +268,28 @@ def runTrial(ai_task, di_task, ao_task, do_task, taskParameters):
     if taskParameters['alternate']:
         goTrial = not lastTrialGo
     ## setting up daq outputs
-    ao_out = np.zeros([2,numSamples])
-    do_out = np.zeros([6,numSamples],dtype='bool')
+    ao_out = np.zeros([4,numSamples])
+    do_out = np.zeros([7,numSamples],dtype='bool')
+    if taskParameters['optical']:
+      numspots = 3
+      spotradiusinvolts = .3 
+      spotdurinseconds = .002
+      spotisiinseconds = .01  
+      if spotisiinseconds < .002:
+        spotisiinseconds = .002  #this is a hardware limit
+
+      isisamples = int(spotisiinseconds * taskParameters['Fs'])
+      spotsamples = int(spotdurinseconds * taskParameters['Fs'])
+      if spotsamples < 1:
+        spotsamples = 1
+      for i in np.arange(numspots):
+        do_out[7,i*(isisamples+spotsamples) + isisamples:i*(isisamples+spotsamples) + spotsamples + isisamples] = True  # pulse
+        ao_out[2,i*(isisamples+spotsamples):i*(isisamples+spotsamples) + isisamples + spotsamples] = np.random.random_sample * spotradiusinvolts
+        ao_out[3,i*(isisamples+spotsamples):i*(isisamples+spotsamples) + isisamples + spotsamples] = np.random.random_sample * spotradiusinvolts
+
+    do_out[1,1:-1] = True ## trigger (tells the intan system when to record and the non-DO nidaq tasks when to start)
     if taskParameters['playTone']:
       do_out[0,samplesToToneStart:samplesToToneEnd] = True ## tone
-    do_out[1,1:-1] = True ## trigger (tells the intan system when to record and the non-DO nidaq tasks when to start)
-
     if goTrial:
         ao_out[1,:forceTime_samples] = np.arange(0,1,1/forceTime_samples) * force_volts
         ao_out[1,forceTime_samples:forceTime_samples+forceDuration_samples] = force_volts
@@ -283,7 +300,11 @@ def runTrial(ai_task, di_task, ao_task, do_task, taskParameters):
             do_out[3,samplesToToneStart+50:samplesToToneStart+150] = True  ## delivers reward via squirt
     if not goTrial:
         ao_out[1,:] = 0
-
+        #push the spot off the paw
+        offpawvoltage = .8
+        ao_out[2,:] = ao_out[2,:] + offpawvoltage
+        ao_out[3,:] = ao_out[3,:] + offpawvoltage
+        
 
     if  taskParameters['forceContinuous']: ## overwriting force command so that it changes at the beginning of transition trials
         if goTrial:
@@ -387,6 +408,7 @@ def updateParameters(values):
     taskParameters['trialDuration'] =  float(values['-TrialDuration-'])
     taskParameters['falseAlarmTimeout'] = float(values['-FalseAlarmTimeout-'])
     taskParameters['playTone'] = values['-PlayTone-']
+    taskParameters['optical'] = values['-Optical-']
     taskParameters['timeToTone'] = float(values['-TimeToTone-'])
     taskParameters['varyTone'] = values['-VaryTone-']
     taskParameters['abortEarlyLick'] = values['-AbortEarlyLick-']
@@ -417,6 +439,7 @@ layout = [  [sg.Text('Number of Trials',size=(textWidth,1)), sg.Input(100,size=(
             [sg.Text('Trial Duration (s)',size=(textWidth,1)), sg.Input(default_text=7,size=(inputWidth,1),key='-TrialDuration-')],
             [sg.Text('False Alarm Timeout (s)',size=(textWidth,1)),sg.Input(default_text=3,size=(inputWidth,1),key='-FalseAlarmTimeout-')],
             [sg.Check('Play Tone?',default=True,key='-PlayTone-')],
+            [sg.Check('Optical Only?',default=True,key='-Optical-')],
             [sg.Text('Time to Tone/Reward Window (from full force; s)',size=(textWidth,1)), sg.Input(default_text=3,size=(inputWidth,1),key='-TimeToTone-'), sg.Check('Vary this?',key='-VaryTone-')],
             [sg.Check('Abort if lick detected between start of trial and tone?',key='-AbortEarlyLick-')],
             [sg.Text('Reward Window Duration (s)',size=(textWidth,1)),sg.Input(default_text=1,size=(inputWidth,1),key='-RewardWindowDuration-'),sg.Check('Reward All Go Trials?',key='-RewardAllGos-')],
@@ -484,6 +507,10 @@ while True:
                 window.Element('-PlayTone-').Update(value=tempParameters['playTone'])
             else:
                 window.Element('-PlayTone-').Update(value=True)
+            if 'Optical' in tempParameters.keys():
+                window.Element('-Optical-').Update(value=tempParameters['optical'])
+            else:
+                window.Element('-Optical-').Update(value=False)  #BPL: is this correct?
             window.Element('-TimeToTone-').Update(value=tempParameters['timeToTone'])
             window.Element('-VaryTone-').Update(value=tempParameters['varyTone'])
             if 'abortEarlyLick' in tempParameters.keys():
