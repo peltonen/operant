@@ -46,6 +46,7 @@ SETTINGS_KEYS_TO_ELEMENT_KEYS = {'lengthChannel_input': '-LENGTH IN-',
                                  'camera_output': '-CAMERA OUT-',
                                  'lick_input': '-LICK IN-',
                                  'laser_output' : '-LASER OUT-',
+                                 'laser_input'  : '-LASER IN-',
                                  'clock_input': '-CLOCK IN-',
                                  'trigger_input': '-TRIGGER IN-'
                                 }
@@ -97,6 +98,7 @@ def create_settings_window(settings):
                 [TextLabel('Abort Output'),sg.Input(key='-ABORT OUT-')],
                 [TextLabel('Camera Output'),sg.Input(key='-CAMERA OUT-')],
                 [TextLabel('Lick Input'),sg.Input(key='-LICK IN-')],
+                [TextLabel('Laser Input'),sg.Input(key='-LASER IN-')],
                 [TextLabel('Laser Output'),sg.Input(key='-LASER OUT-')],
                 [TextLabel('Clock Input'),sg.Input(key='-CLOCK IN-')],
                 [TextLabel('Trigger Input'),sg.Input(key='-TRIGGER IN-')],
@@ -120,21 +122,22 @@ def setupDaq(settings,taskParameters,setup='task'):
         ai_task = nidaqmx.Task()
         ai_task.ai_channels.add_ai_voltage_chan(settings['lengthChannel_input'],name_to_assign_to_channel='length_in')
         ai_task.ai_channels.add_ai_voltage_chan(settings['forceChannel_input'],name_to_assign_to_channel='force_in')
-        ai_task.ai_channels.add_ai_voltage_chan(settings['XMIRROR_input'],name_to_assign_to_channel='xMirror_in')
-        ai_task.ai_channels.add_ai_voltage_chan(settings['YMIRROR_input'],name_to_assign_to_channel='yMirror_in')
+        ai_task.ai_channels.add_ai_voltage_chan(settings['xMirror_input'],name_to_assign_to_channel='xMirror_in')
+        ai_task.ai_channels.add_ai_voltage_chan(settings['yMirror_input'],name_to_assign_to_channel='yMirror_in')
         ai_task.timing.cfg_samp_clk_timing(taskParameters['Fs'], source=settings['clock_input'], samps_per_chan=numSamples)
         ai_task.triggers.start_trigger.cfg_dig_edge_start_trig(settings['trigger_input'])
 
         di_task = nidaqmx.Task()
         di_task.di_channels.add_di_chan(settings['lick_input'],name_to_assign_to_lines='lick')
+        di_task.di_channels.add_di_chan(settings['laser_input'],name_to_assign_to_lines='laser')
         di_task.timing.cfg_samp_clk_timing(taskParameters['Fs'], source=settings['clock_input'], samps_per_chan=numSamples)
         di_task.triggers.start_trigger.cfg_dig_edge_start_trig(settings['trigger_input'])
 
         ao_task = nidaqmx.Task()
         ao_task.ao_channels.add_ao_voltage_chan(settings['lengthChannel_output'],name_to_assign_to_channel='length_out')
         ao_task.ao_channels.add_ao_voltage_chan(settings['forceChannel_output'],name_to_assign_to_channel='force_out')
-        ao_task.ao_channels.add_ao_voltage_chan(settings['XMIRROR_output'],name_to_assign_to_channel='xMirror_out')
-        ao_task.ao_channels.add_ao_voltage_chan(settings['YMIRROR_output'],name_to_assign_to_channel='yMirror_out')
+        ao_task.ao_channels.add_ao_voltage_chan(settings['xMirror_output'],name_to_assign_to_channel='xMirror_out')
+        ao_task.ao_channels.add_ao_voltage_chan(settings['yMirror_output'],name_to_assign_to_channel='yMirror_out')
         ao_task.timing.cfg_samp_clk_timing(taskParameters['Fs'], source=settings['clock_input'], samps_per_chan=numSamples)
         ao_task.triggers.start_trigger.cfg_dig_edge_start_trig(settings['trigger_input'])
 
@@ -154,7 +157,7 @@ def setupDaq(settings,taskParameters,setup='task'):
         do_task.do_channels.add_do_chan(settings['squirt_output'],name_to_assign_to_lines='squirt')
         do_task.timing.cfg_samp_clk_timing(taskParameters['Fs'], source=settings['clock_input'], samps_per_chan=100)
         return(do_task, setup)
-
+        
 ##################### Define task functions #####################
 
 def runTask(ai_task, di_task, ao_task, do_task, taskParameters):
@@ -283,9 +286,9 @@ def runTrial(ai_task, di_task, ao_task, do_task, taskParameters):
       if spotsamples < 1:
         spotsamples = 1
       for i in np.arange(numspots):
-        do_out[7,i*(isisamples+spotsamples) + isisamples:i*(isisamples+spotsamples) + spotsamples + isisamples] = True  # pulse
-        ao_out[2,i*(isisamples+spotsamples):i*(isisamples+spotsamples) + isisamples + spotsamples] = np.random.random_sample * spotradiusinvolts
-        ao_out[3,i*(isisamples+spotsamples):i*(isisamples+spotsamples) + isisamples + spotsamples] = np.random.random_sample * spotradiusinvolts
+        do_out[6,i*(isisamples+spotsamples) + isisamples:i*(isisamples+spotsamples) + spotsamples + isisamples] = True  # pulse
+        ao_out[2,i*(isisamples+spotsamples):i*(isisamples+spotsamples) + isisamples + spotsamples] = np.random.random_sample() * spotradiusinvolts
+        ao_out[3,i*(isisamples+spotsamples):i*(isisamples+spotsamples) + isisamples + spotsamples] = np.random.random_sample() * spotradiusinvolts
 
     do_out[1,1:-1] = True ## trigger (tells the intan system when to record and the non-DO nidaq tasks when to start)
     if taskParameters['playTone']:
@@ -447,7 +450,7 @@ layout = [  [sg.Text('Number of Trials',size=(textWidth,1)), sg.Input(100,size=(
             [sg.Text('Force (mN)',size=(textWidth,1)),sg.Input(default_text=50,size=(inputWidth,1),key='-Force-'),sg.Check('Vary force?',key='-VaryForce-')],
             [sg.Text('Force Ramp Time (s)',size=(textWidth,1)),sg.Input(default_text=1,size=(inputWidth,1),key='-ForceRampTime-')],
             [sg.Text('Step Duration (s)',size=(textWidth,1)),sg.Input(default_text=3,size=(inputWidth,1),key='-StepDuration-'),sg.Check('Continue to Nogo?',key='-EnableContinuous-')],
-            [sg.Text('Save Path',size=(textWidth,1)),sg.Input(os.path.normpath('E://DATA/Behavior/'),size=(20,1),key='-SavePath-'),
+            [sg.Text('Save Path',size=(textWidth,1)),sg.Input(os.path.normpath('C:\Data\Behavior'),size=(20,1),key='-SavePath-'),
              sg.Check('Save?',default=True,key='-Save-')],
             [sg.Text('Animal ID',size=(textWidth,1)),sg.Input(size=(20,1),key='-Animal-')],
             [sg.Button('Run Task',size=(30,2)),sg.Button('Dispense Reward',size=(30,2))],
@@ -532,3 +535,4 @@ while True:
         except:
             'invalid file'
 window.close()
+
